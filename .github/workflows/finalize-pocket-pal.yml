@@ -1,0 +1,103 @@
+name: Finalize Pocket Pal import
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/finalize-pocket-pal.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Close temporary transfer issues
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh issue list --state open --limit 100 --json number,title | jq -r '.[] | select(
+            .title == "test" or
+            .title == "ignore-this-test" or
+            .title == "temporary" or
+            .title == "temporary-bootstrap" or
+            .title == "Bootstrap transfer status" or
+            .title == "Transfer placeholder" or
+            .title == "Transfer helper" or
+            .title == "Temporary bootstrap upload" or
+            .title == "Temporary transfer check" or
+            .title == "Temporary connector probe" or
+            .title == "Temporary full-tool probe" or
+            .title == "Temporary release probe" or
+            .title == "Temporary helper issue"
+          ) | .number' | while read -r issue_number; do
+            [ -n "$issue_number" ] && gh issue close "$issue_number"
+          done
+
+      - name: Finalize source import
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apply_import() {
+            if compgen -G '.bootstrap/part-*' > /dev/null; then
+              part_count=$(find .bootstrap -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')
+              if [ "$part_count" -lt 15 ]; then
+                echo "Expected 15 archive blocks, found $part_count."
+                return 1
+              fi
+              cat .bootstrap/part-* | base64 --decode > /tmp/pocket-pal.tar.xz
+              tar -xJf /tmp/pocket-pal.tar.xz
+              rm -rf .bootstrap
+            fi
+
+            test -f package.json
+            test -f src/App.tsx
+            test -f vite.config.ts
+            file_count=$(find . -type f -not -path './.git/*' | wc -l | tr -d ' ')
+            if [ "$file_count" -lt 100 ]; then
+              echo "Import validation failed: only $file_count files found."
+              return 1
+            fi
+
+            rm -f .github/workflows/bootstrap-pocket-pal.yml
+            rm -f .github/workflows/finalize-pocket-pal.yml
+          }
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git reset --hard origin/main
+            apply_import
+            git add -A
+
+            if git diff --cached --quiet; then
+              echo 'Pocket Pal import is already finalized.'
+              exit 0
+            fi
+
+            git commit -m 'Finalize Pocket Pal import'
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+
+            echo "Push attempt $attempt conflicted with another workflow; retrying."
+            sleep 3
+          done
+
+          echo 'Unable to finalize the import after three attempts.'
+          exit 1
