@@ -25,7 +25,7 @@ jobs:
           test -d .import2
           count=$(find .import2 -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')
           echo "Found $count source blocks"
-          test "$count" -ge 11
+          test "$count" -eq 11
           cat $(find .import2 -maxdepth 1 -type f -name 'part-*' | sort) | base64 --decode > /tmp/gotchu.tar.xz
           xz --test /tmp/gotchu.tar.xz
           mkdir -p /tmp/gotchu
