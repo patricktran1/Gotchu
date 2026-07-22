@@ -1,0 +1,55 @@
+name: Repair Gotchu source tree
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/repair-gotchu.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reconstruct and validate source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d .import2
+          count=$(find .import2 -maxdepth 1 -type f -name 'part-*' | wc -l | tr -d ' ')
+          echo "Found $count source blocks"
+          test "$count" -ge 11
+          cat $(find .import2 -maxdepth 1 -type f -name 'part-*' | sort) | base64 --decode > /tmp/gotchu.tar.xz
+          xz --test /tmp/gotchu.tar.xz
+          mkdir -p /tmp/gotchu
+          tar -xJf /tmp/gotchu.tar.xz -C /tmp/gotchu
+          test -f /tmp/gotchu/package.json
+          test -f /tmp/gotchu/vite.config.ts
+          test -f /tmp/gotchu/src/routes/index.tsx
+          file_count=$(find /tmp/gotchu -type f | wc -l | tr -d ' ')
+          echo "Validated $file_count project files"
+          test "$file_count" -ge 100
+
+      - name: Replace repository tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a /tmp/gotchu/. .
+          rm -rf .import2 .import3 .bootstrap .bootstrap2
+          rm -f .diagnostic
+          rm -f .github/workflows/repair-gotchu.yml
+          rm -f .github/workflows/finalize-pocket-pal.yml
+          rm -f .github/workflows/bootstrap-pocket-pal.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Restore complete Gotchu application source'
+          git push origin HEAD:main
