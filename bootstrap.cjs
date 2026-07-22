@@ -15,7 +15,10 @@ if (parts.length !== 11) {
   throw new Error(`Expected 11 source blocks, found ${parts.length}`);
 }
 
-run(`cat ${parts.map((name) => `.import2/${name}`).join(' ')} | base64 --decode > /tmp/gotchu.tar.xz`);
+run(': > /tmp/gotchu.tar.xz');
+for (const name of parts) {
+  run(`base64 --decode .import2/${name} >> /tmp/gotchu.tar.xz`);
+}
 run('xz --test /tmp/gotchu.tar.xz');
 run('tar -xJf /tmp/gotchu.tar.xz -C .');
 
